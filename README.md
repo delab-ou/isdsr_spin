@@ -36,17 +36,27 @@ Run
 ./a.out -E
 
 In dsr.py, there are 5 classes.
+
 PromelaGenerator: generates a Promela source file dsr_gen.pml
+
 ReplacementCodeGenerator: generates replace.h and replace.c
+
 PrintState: generates pint_state.h and print_state.c
+
 InsertingStatementGenerator: generates pan_symm.c
+
 CodeGeneration: a method genPromelaCsource() is a triger of code generation
 
+
 A constructor of CodeGeneration takes 2 arguments nodes and around.
+
 Args:
+
 nodes: is the number of nodes in a network
+
 around: is the number of neighbor nodes at most when a node broadcasts a packet.
 
 Parameters when we conduct experiments for ISSRE2019 are
+
 nodes=N, around=1.
 N is the number of nodes from 4 to 9.
