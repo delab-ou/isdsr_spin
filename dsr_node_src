@@ -1,0 +1,151 @@
+inline unicast(uni){
+  if::
+    if::(len(c[uni])==CHAN_BUF)->c[uni]?tmp;
+		    initializePacket(tmp);
+			::else->skip;
+		fi;
+		c[uni]!pkts;
+    ::skip;
+  fi;
+}
+
+inline copyRI(_n,_s,_r){
+  for(cnt:0 .. _n){
+    _s.ri[cnt]=_r.ri[cnt];
+  }
+}
+inline initializePacket(_pkt){
+	_pkt.type=0;
+  _pkt.src=0;
+  _pkt.dest=0;
+  _pkt.next=0;
+  _pkt.hops=0;
+	for (cnt:0 .. NODES-1){
+		_pkt.ri[cnt]=0
+	}
+  _pkt.rilen=0;
+}
+
+inline genInitialPacket(_type,_src,_dest,_next,_hops,_rilen){
+  pkts.type=_type;
+  pkts.src=_src;
+  pkts.dest=_dest;
+  pkts.next=_next;
+  pkts.hops=_hops;
+  pkts.rilen=_rilen;
+}
+inline genForwardPacket(_next,_rilen){
+  pkts.type=pktr.type;
+  pkts.src=pktr.src;
+  pkts.dest=pktr.dest;
+  pkts.next=_next;
+  pkts.hops=pktr.hops+1;
+  pkts.rilen=_rilen;
+  copyRI(pktr.rilen,pkts,pktr);
+}
+inline findOwnId(){
+  for(cnt:0 .. pktr.rilen){
+    if
+    ::(pktr.ri[cnt]==id)->exist=1;break;
+    ::else->skip;
+    fi;
+  };
+}
+
+proctype Src(byte id,d){
+  bool found=false;
+  packet pkts,pktr,tmp;
+  byte next,cnt,retry=0;
+	atomic{
+    genInitialPacket(0,id,d,0,1,0);
+    pkts.ri[pkts.rilen]=id;
+    broadcast();
+	  initializePacket(pkts);
+  }
+  do
+  ::c[id-1]?pktr->
+	  atomic{
+    if
+    ::((pktr.type==1)&&(pktr.dest==id)&&(pktr.ri[pktr.rilen-pktr.hops]==id))->
+      found=true;break;
+    ::else->skip;
+    fi;
+		initializePacket(pktr);
+	  };
+  ::timeout->skip;
+  od;
+}
+proctype Dest(byte id){
+	byte cnt=0;
+	packet pkts,pktr,tmp;
+	bool exist=0,forward=0;
+	do:: c[id-1]?pktr->
+
+  if
+  ::(forward==1)->break;
+  ::else->skip;
+  fi;
+		d_step{
+		if
+    ::((pktr.type==0)&&(pktr.dest==id))->
+      exist=0;forward=0;
+      findOwnId();
+      if
+      ::(exist==1)->skip;
+      ::else->genInitialPacket(1,id,pktr.src,pktr.ri[pktr.rilen],1,pktr.rilen+1);
+              copyRI(pktr.rilen,pkts,pktr);pkts.ri[pkts.rilen]=id;forward=1;
+      fi;
+		::else->skip;
+		fi;
+		initializePacket(pktr);
+    };
+		atomic{
+		if
+    ::(forward==1)->unicast(pkts.next-1);
+    ::else->skip;
+		fi;
+		initializePacket(pkts);
+		};
+		::timeout->break;
+	od;
+}
+proctype Node(byte id){
+  byte cnt,next;
+  packet pkts,pktr,tmp;
+  bool exist,forward;
+  do::c[id-1]?pktr->
+    d_step{
+      exist=0;forward=0;
+      if
+      ::((pktr.type==0)&&(pktr.src!=id)&&(pktr.dest!=id))->findOwnId();
+        if
+        ::(exist==1)->skip;
+        ::else->
+          genForwardPacket(0,pktr.rilen+1);
+          pkts.ri[pkts.rilen]=id;
+          forward=1;
+        fi;
+      ::((pktr.type==1)&&(pktr.src!=id)&&(pktr.dest!=id))->findOwnId();
+        if
+        ::(exist==1)->
+          if
+          ::(pktr.ri[pktr.rilen-pktr.hops]==id)->
+            genForwardPacket(pktr.ri[pktr.rilen-pktr.hops-1],pktr.rilen);forward=1;
+          ::else->skip;
+          fi;
+        ::else->skip;
+        fi;
+      fi;
+			initializePacket(pktr);
+    }
+    atomic{
+		  if
+      ::((pkts.next==0)&&(pkts.next!=255))->broadcast();
+		  ::((pkts.next>0)&&(pkts.next!=255))->unicast(pkts.next-1);
+		  ::else->skip;
+		  fi;
+			initializePacket(pkts);
+		}
+	::timeout->break;
+	od;
+}
