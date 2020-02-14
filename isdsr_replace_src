@@ -1,0 +1,171 @@
+void moveQueue(int *perm, Q1 *_now, Q1 *_tmp, nodeinfo *nodes){
+  _tmp->Qlen=_now->Qlen;
+  //_tmp->_t=_now->_t;
+  struct packet pkt_n, pkt_t;
+  translateQtoPkt(_now,&pkt_n);
+  translateQtoPkt(_tmp,&pkt_t);
+  movePacket(perm,&pkt_n,&pkt_t,nodes);
+  translatePkttoQ(_tmp,&pkt_t);
+}
+void signingReplacementPacket(struct packet *pkt, nodeinfo *nodes){
+  int cnt=pkt->hops;
+  int i=1;
+  struct packet p;
+  if(pkt->src==0){
+    for(cnt=0;cnt<128;cnt++){
+      pkt->sig1[i]=0;
+      pkt->sig2[i]=0;
+      pkt->sig3[i]=0;
+    }
+    return;
+  }
+  if(pkt->type==0){
+    p.type=0;
+    p.src=pkt->src;
+    p.dest=pkt->dest;
+    p.next=0;
+  }
+  if(pkt->type==1){
+    p.type=1;
+    p.src=pkt->ri[0];
+    p.dest=pkt->ri[pkt->rilen];
+    p.next=pkt->next;
+    cnt=pkt->rilen+1;
+  }
+  for(i=0;i<cnt;i++){
+    p.hops=i+1;
+    p.rilen=i;
+    p.ri[i]=pkt->ri[i];
+    signingPacket(&p,pkt->ri[i],nodes);
+  }
+  for(i=0;i<128;i++){
+    pkt->sig1[i]=p.sig1[i];
+    pkt->sig2[i]=p.sig2[i];
+    pkt->sig3[i]=p.sig3[i];
+  }
+  //int v=verifyingPacket(&p,1,nodes);
+  //int v2=verifyingPacket(pkt,1,nodes);
+  //printf("verify = %d,%d\n",v,v2);
+}
+
+void moveCorrespondingNode(int *perm,struct packet *_p){
+  if((3<=_p->next) && (_p->next <= NODES)){
+    _p->next=perm[_p->next-3];
+  }
+  int cnt=0;
+  for(cnt=0;cnt<NODES;cnt++){
+    if((3<=_p->ri[cnt]) && (_p->ri[cnt] <= NODES)){
+      _p->ri[cnt]=perm[_p->ri[cnt]-3];
+    }
+  }
+}
+void movePacket(int *perm, struct packet *_now, struct packet *_tmp,  nodeinfo *nodes){
+  int cnt=0;
+  _tmp->type=_now->type;
+  _tmp->src=_now->src;
+  _tmp->dest=_now->dest;
+  _tmp->next=_now->next;
+  _tmp->hops=_now->hops;
+  _tmp->rilen=_now->rilen;
+  for(cnt=0;cnt<NODES;cnt++){
+    _tmp->ri[cnt]=_now->ri[cnt];
+  }
+  for(cnt=0;cnt<128;cnt++){
+    _tmp->sig1[cnt]=_now->sig1[cnt];
+    _tmp->sig2[cnt]=_now->sig2[cnt];
+    _tmp->sig3[cnt]=_now->sig3[cnt];
+  }
+  moveCorrespondingNode(perm,_tmp);
+  signingReplacementPacket(_tmp,nodes);
+}
+
+void movePackets(int *perm, P2 *_now, P2 *_tmp,  nodeinfo *nodes){
+  movePacket(perm,&(_now->pkts),&(_tmp->pkts),nodes);
+  movePacket(perm,&(_now->pktr),&(_tmp->pktr),nodes);
+  movePacket(perm,&(_now->tmp),&(_tmp->tmp),nodes);
+}
+
+void moveSrcPackets(int *perm, P0* _tmp, nodeinfo *nodes){
+  moveCorrespondingNode(perm,&(_tmp->pktr));
+  moveCorrespondingNode(perm,&(_tmp->pkts));
+  moveCorrespondingNode(perm,&(_tmp->tmp));
+  signingReplacementPacket(&(_tmp->pktr),nodes);
+  signingReplacementPacket(&(_tmp->pkts),nodes);
+  signingReplacementPacket(&(_tmp->tmp),nodes);
+}
+void moveDestPackets(int *perm, P1* _tmp, nodeinfo *nodes){
+  moveCorrespondingNode(perm,&(_tmp->pktr));
+  moveCorrespondingNode(perm,&(_tmp->pkts));
+  moveCorrespondingNode(perm,&(_tmp->tmp));
+  signingReplacementPacket(&(_tmp->pktr),nodes);
+  signingReplacementPacket(&(_tmp->pkts),nodes);
+  signingReplacementPacket(&(_tmp->tmp),nodes);
+}
+void moveSrcQ(int *perm, Q1 *_p, nodeinfo *nodes){
+  struct packet pkt;
+  translateQtoPkt(_p,&pkt);
+  moveCorrespondingNode(perm,&pkt);
+  signingReplacementPacket(&pkt, nodes);
+  translatePkttoQ((Q1*)_p,&pkt);
+}
+void moveDestQ(int *perm, Q2 *_p,  nodeinfo *nodes){
+  struct packet pkt;
+  translateQtoPkt((Q1*)_p,&pkt);
+  moveCorrespondingNode(perm,&pkt);
+  signingReplacementPacket(&pkt, nodes);
+  translatePkttoQ((Q1*)_p,&pkt);
+}
+void moveProcess(int *perm, P2 *_now, P2* _tmp, nodeinfo *nodes){
+
+    _tmp->_p=_now->_p;
+    _tmp->exist=_now->exist;
+    _tmp->forward=_now->forward;
+    _tmp->next=_now->next;
+    _tmp->cnt=_now->cnt;
+    movePackets(perm,_now,_tmp,nodes);
+}
+
+void moveState(int *perm, struct State *_now,struct State *_tmp,int id,short *pos,short *qos, nodeinfo *nodes){
+  P2 *_nowP=((P2 *)(((unsigned char *)_now)+(int)pos[perm[id-3]]));
+  P2 *_tmpP=((P2 *)(((unsigned char *)_tmp)+(int)pos[id]));
+  Q0 *_nowQ=((Q0 *)(((unsigned char *)_now)+(int)qos[perm[id-3]-1]));
+  Q0 *_tmpQ=((Q0 *)(((unsigned char *)_tmp)+(int)qos[id-1]));
+  moveProcess(perm,_nowP,_tmpP,nodes);
+  moveQueue(perm,(Q1*)_nowQ,(Q1*)_tmpQ,nodes);
+}
+
+
+void replace(int *perm, struct State *_now, struct State* _tmp,short *pos, short *qos, nodeinfo *nodes){
+  //a node i in state _tmp is assigned by a node perm[i-3] in a state _now
+  int cnt=3;
+  for(;cnt<=NODES;cnt++){
+    moveState(perm,_now,_tmp,cnt,pos,qos,nodes);
+  }
+  Q1 *_sQ=((Q1 *)(((unsigned char *)_tmp)+(int)qos[0]));
+  Q2 *_dQ=((Q2 *)(((unsigned char *)_tmp)+(int)qos[1]));
+  P0 *_sP=((P0 *)(((unsigned char *)_tmp)+(int)pos[1]));
+  P1 *_dP=((P1 *)(((unsigned char *)_tmp)+(int)pos[2]));
+  moveSrcPackets(perm,_sP,nodes);
+  moveDestPackets(perm,_dP,nodes);
+  moveSrcQ(perm,_sQ,nodes);
+  moveDestQ(perm,_dQ,nodes);
+
+}
+int isSameState(char* s1,char *s2, int size){
+  int cnt=0;
+  int ret=1;
+  for(;cnt<size;cnt++){
+    if(s1[cnt]!=s2[cnt]){
+      ret=0;
+      break;
+    }
+  }
+  return ret;
+}
+int routeLength(struct State *s,short *pos){
+  P0 *src=((P0 *)(((unsigned char *)s)+(int)pos[1]));
+  if(src->found==1){
+    return src->pktr.hops;
+  }
+  return 0;
+}
